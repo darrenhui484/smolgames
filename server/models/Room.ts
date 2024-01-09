@@ -1,11 +1,15 @@
 import { GameState, User } from "../types";
 
+export type GameType = "liars-dice";
+
 export class Room {
+  gameType: GameType;
   users: Array<User>;
   maxPlayers: number;
-  constructor(maxPlayers: number) {
+  constructor(maxPlayers: number, gameType: GameType) {
     this.users = [];
     this.maxPlayers = maxPlayers;
+    this.gameType = gameType;
   }
 
   removeUser(socketId: string) {
