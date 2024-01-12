@@ -25,6 +25,10 @@ export class GamesManager {
     this.roomIdToGameState.delete(roomId);
   }
 
+  hasGameState(roomId: string) {
+    return this.roomIdToGameState.has(roomId);
+  }
+
   getGameState(roomId: string) {
     const gameState = this.roomIdToGameState.get(roomId);
     if (gameState == undefined) {

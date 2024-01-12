@@ -36,7 +36,30 @@ function replacer(key: any, value: any) {
 nextApp.prepare().then(() => {
   // define express api routes here
   expressApp.get("/rooms", async (request, response) => {
-    response.json(JSON.stringify(roomsManager, replacer));
+    response.json(JSON.parse(JSON.stringify(roomsManager, replacer)));
+  });
+
+  expressApp.get("/games", async (request, response) => {
+    response.json(JSON.parse(JSON.stringify(gamesManager, replacer)));
+  });
+
+  expressApp.get("/room", async (request, response) => {
+    const params = request.query;
+    const roomId = params.roomId;
+
+    if (typeof roomId !== "string") {
+      response.status(400);
+      return;
+    }
+
+    const res = {
+      room: roomsManager.hasRoom(roomId) ? roomsManager.getRoom(roomId) : null,
+      gameState: gamesManager.hasGameState(roomId)
+        ? gamesManager.getGameState(roomId)
+        : null,
+    };
+
+    response.json(res);
   });
 
   // let nextjs manage routes in pages/api

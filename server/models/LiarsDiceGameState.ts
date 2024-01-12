@@ -1,8 +1,13 @@
-import { GameState } from "../types";
+import { GAME_TYPE, GameState, GameType, GameTypeSchema } from "../types";
 import { z } from "zod";
 
 const NUMBER_OF_DICE = 5;
+const NUMBER_OF_SIDES = 6;
 const INITIAL_BET = { dieValue: 2, count: 0 } as const;
+export const ACTIONS = {
+  BET: "bet",
+  CHALLENGE: "challenge",
+} as const;
 
 class GamePlayer {
   username: string;
@@ -13,25 +18,42 @@ class GamePlayer {
   }
 }
 
+const GamePlayerSchema = z.object({
+  username: z.string(),
+  dice: z.array(z.number()),
+});
+
 const BetSchema = z.object({
   dieValue: z.number(),
   count: z.number(),
 });
-type Bet = z.infer<typeof BetSchema>;
+export type Bet = z.infer<typeof BetSchema>;
 
 const BetActionPayloadSchema = z.object({
   bet: BetSchema,
 });
 
 const LiarsDiceActionTypeSchema = z.union([
-  z.literal("CHALLENGE"),
-  z.literal("BET"),
+  z.literal(ACTIONS.CHALLENGE),
+  z.literal(ACTIONS.BET),
 ]);
 
 const LiarsDiceActionSchema = z.object({
   type: LiarsDiceActionTypeSchema,
   payload: BetActionPayloadSchema.optional(),
 });
+export type LiarsDiceAction = z.infer<typeof LiarsDiceActionSchema>;
+
+export const LiarsDiceGameStateSchema = z.object({
+  turn: z.number(),
+  roundTurnCount: z.number(),
+  players: z.array(GamePlayerSchema),
+  currentBet: BetSchema,
+  numberOfDice: z.number(),
+  numberOfSides: z.number(),
+  gameType: GameTypeSchema,
+});
+export type LiarsDiceGameStateType = z.infer<typeof LiarsDiceGameStateSchema>;
 
 export class LiarsDiceGameState implements GameState {
   turn: number; // index into player array
@@ -39,121 +61,173 @@ export class LiarsDiceGameState implements GameState {
   players: Array<GamePlayer>;
   currentBet: Bet;
   numberOfDice: number;
-  constructor(users: Array<string>, numberOfDice = NUMBER_OF_DICE) {
+  numberOfSides: number;
+  gameType: GameType;
+  constructor(
+    users: Array<string>,
+    numberOfDice = NUMBER_OF_DICE,
+    numberOfSides = NUMBER_OF_SIDES
+  ) {
     this.turn = 0;
     this.roundTurnCount = 0;
     this.currentBet = { ...INITIAL_BET };
     this.numberOfDice = numberOfDice;
+    this.numberOfSides = numberOfSides;
     this.players = users.map((user) => new GamePlayer(user, numberOfDice));
+    this.gameType = GAME_TYPE.LIARS_DICE;
   }
 
   gameCycle(action: unknown) {
     const parsedAction = LiarsDiceActionSchema.parse(action);
     switch (parsedAction.type) {
-      case "CHALLENGE":
-        this.challenge();
-        this.nextRound();
-        if (this.isGameOver()) {
+      case ACTIONS.CHALLENGE:
+        challenge(this);
+        nextRound(this);
+        this.roundTurnCount = 0;
+        if (isGameOver(this)) {
           return false;
         }
         break;
-      case "BET":
+      case ACTIONS.BET:
         const payload = BetActionPayloadSchema.parse(parsedAction.payload);
-        this.bet(payload.bet);
-        this.nextTurn();
+        bet(payload.bet, this);
+        nextTurn(this);
+        this.roundTurnCount += 1;
         break;
       default:
         throw new Error("invalid action type");
     }
     return true;
   }
+}
 
-  getPreviousPlayerIndex() {
-    if (this.turn === 0) {
-      return this.players.length - 1;
-    }
-    return this.turn - 1;
+function getPreviousPlayerIndex(state: LiarsDiceGameStateType) {
+  if (state.turn === 0) {
+    return state.players.length - 1;
+  }
+  return state.turn - 1;
+}
+
+function getPreviousPlayer(state: LiarsDiceGameStateType) {
+  return state.players[getPreviousPlayerIndex(state)];
+}
+
+export function getCurrentPlayer(state: LiarsDiceGameStateType) {
+  return state.players[state.turn];
+}
+
+function bet(newBet: Bet, state: LiarsDiceGameStateType) {
+  if (!isValidBet(newBet, state.currentBet)) {
+    throw new Error("illegal bet");
+  }
+  state.currentBet = newBet;
+}
+
+export function isValidBet(newBet: Bet, existingBet: Bet) {
+  if (newBet.count <= 0) {
+    return false;
   }
 
-  getPreviousPlayer() {
-    return this.players[this.getPreviousPlayerIndex()];
+  if (newBet.dieValue < existingBet.dieValue) {
+    return false;
   }
 
-  getCurrentPlayer() {
-    return this.players[this.turn];
+  if (
+    newBet.dieValue === existingBet.dieValue &&
+    newBet.count <= existingBet.count
+  ) {
+    return false;
   }
 
-  bet(newBet: Bet) {
-    const currentBet = this.currentBet;
-    const isSmallerDieValue = newBet.dieValue < currentBet.dieValue;
-    const sameDieValueAndLTECount =
-      newBet.dieValue === currentBet.dieValue &&
-      newBet.count <= currentBet.count;
-    if (isSmallerDieValue || sameDieValueAndLTECount) {
-      throw new Error("illegal bet");
-    }
-    this.currentBet = newBet;
+  return true;
+}
+
+export function getNextValidBet(
+  existingBet: Bet,
+  state: LiarsDiceGameStateType
+): Bet | null {
+  if (existingBet.count + 1 <= getRemainingDiceCount(state)) {
+    return {
+      dieValue: existingBet.dieValue,
+      count: existingBet.count + 1,
+    };
   }
 
-  isSuccessfulChallenge() {
-    let currentCount = 0;
-    this.players.forEach((player) => {
-      player.dice.forEach((dieValue) => {
-        if (dieValue === 1 || dieValue === this.currentBet.dieValue) {
-          currentCount += 1;
-          if (currentCount >= this.currentBet.count) {
-            return false;
-          }
+  if (existingBet.dieValue <= state.numberOfSides) {
+    return {
+      dieValue: existingBet.dieValue + 1,
+      count: 1,
+    };
+  }
+
+  return null;
+}
+
+export function getRemainingDiceCount(state: LiarsDiceGameStateType) {
+  return state.players.reduce(
+    (accumulator, player) => accumulator + player.dice.length,
+    0
+  );
+}
+
+function isSuccessfulChallenge(state: LiarsDiceGameStateType) {
+  let currentCount = 0;
+  state.players.forEach((player) => {
+    player.dice.forEach((dieValue) => {
+      if (dieValue === 1 || dieValue === state.currentBet.dieValue) {
+        currentCount += 1;
+        if (currentCount >= state.currentBet.count) {
+          return false;
         }
-      });
-    });
-    return true;
-  }
-
-  challenge() {
-    let losingPlayer = null;
-    if (this.isSuccessfulChallenge()) {
-      losingPlayer = this.getPreviousPlayer();
-    } else {
-      losingPlayer = this.getCurrentPlayer();
-    }
-    losingPlayer.dice.pop();
-  }
-
-  nextRound() {
-    // remove dead players and reset turn
-    for (let i = 0; i < this.players.length; i++) {
-      const player = this.players[i];
-      if (player.dice.length <= 0) {
-        this.players.splice(i, 1);
-        if (this.turn === i) {
-          this.turn = this.turn % this.players.length;
-        } else {
-          this.nextTurn();
-        }
-        break;
       }
-    }
-
-    this.players.forEach((player) => {
-      this.rollDice(player.dice);
     });
+  });
+  return true;
+}
 
-    // reset bet
-    this.currentBet = { ...INITIAL_BET };
+function challenge(state: LiarsDiceGameStateType) {
+  let losingPlayer = null;
+  if (isSuccessfulChallenge(state)) {
+    losingPlayer = getPreviousPlayer(state);
+  } else {
+    losingPlayer = getCurrentPlayer(state);
   }
+  losingPlayer.dice.pop();
+}
 
-  isGameOver() {
-    return this.players.length === 1;
-  }
-
-  rollDice(dice: number[], numberOfSides = 6) {
-    for (let i = 0; i < dice.length; i++) {
-      dice[i] = Math.floor(Math.random() * numberOfSides) + 1;
+function nextRound(state: LiarsDiceGameStateType) {
+  // remove dead players and reset turn
+  for (let i = 0; i < state.players.length; i++) {
+    const player = state.players[i];
+    if (player.dice.length <= 0) {
+      state.players.splice(i, 1);
+      if (state.turn === i) {
+        state.turn = state.turn % state.players.length;
+      } else {
+        nextTurn(state);
+      }
+      break;
     }
   }
 
-  nextTurn() {
-    this.turn = (this.turn + 1) % this.players.length;
+  state.players.forEach((player) => {
+    rollDice(player.dice, state.numberOfSides);
+  });
+
+  // reset bet
+  state.currentBet = { ...INITIAL_BET };
+}
+
+function isGameOver(state: LiarsDiceGameStateType) {
+  return state.players.length === 1;
+}
+
+function rollDice(dice: number[], numberOfSides: number) {
+  for (let i = 0; i < dice.length; i++) {
+    dice[i] = Math.floor(Math.random() * numberOfSides) + 1;
   }
+}
+
+function nextTurn(state: LiarsDiceGameStateType) {
+  state.turn = (state.turn + 1) % state.players.length;
 }

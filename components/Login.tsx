@@ -51,7 +51,7 @@ export default function Lobby() {
 
   return (
     <div>
-      <h1>Hanabi</h1>
+      <h1>TIM!?</h1>
 
       <form>
         <label>

@@ -10,7 +10,7 @@ export class RoomsManager {
   }
 
   createRoom(roomId: string) {
-    this.roomIdToRoom.set(roomId, new Room(this.maxPlayers, "liars-dice"));
+    this.roomIdToRoom.set(roomId, new Room(this.maxPlayers, roomId));
   }
 
   deleteRoom(roomId: string) {

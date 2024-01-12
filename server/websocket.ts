@@ -1,8 +1,8 @@
 import { Server, Socket } from "socket.io";
 import { RoomsManager } from "./models/RoomsManager";
 import { GamesManager } from "./models/GamesManager";
-import { GameType } from "./models/Room";
 import { LiarsDiceGameState } from "./models/LiarsDiceGameState";
+import { GAME_TYPE, GameType } from "./types";
 
 export function websocketSetup(
   httpServer: any,
@@ -27,6 +27,17 @@ export function websocketSetup(
       }
       roomsManager.addUser(roomId, newUser);
       socket.join(roomId);
+
+      let gameState = null;
+      if (gamesManager.hasStarted(roomId)) {
+        gameState = gamesManager.getGameState(roomId);
+      }
+
+      io.to(roomId).emit(
+        "joined-room",
+        roomsManager.getRoom(roomId),
+        gameState
+      );
     });
 
     socket.on("start", (roomId: string, gameType: GameType) => {
@@ -38,7 +49,7 @@ export function websocketSetup(
       const usernames = room.users.map((user) => user.username);
 
       let gameState = null;
-      if (gameType === "liars-dice") {
+      if (gameType === GAME_TYPE.LIARS_DICE) {
         gameState = new LiarsDiceGameState(usernames);
       } else {
         return;
@@ -49,9 +60,7 @@ export function websocketSetup(
     });
 
     socket.on("player-action", (roomId: string, action: unknown) => {
-      const room = roomsManager.getRoom(roomId);
       const gameState = gamesManager.getGameState(roomId);
-
       const isGameOver = gameState.gameCycle(action);
       if (isGameOver) {
         io.to(roomId).emit("game-over", gameState);
