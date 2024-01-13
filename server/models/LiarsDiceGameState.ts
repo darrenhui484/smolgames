@@ -9,19 +9,11 @@ export const ACTIONS = {
   CHALLENGE: "challenge",
 } as const;
 
-class GamePlayer {
-  username: string;
-  dice: Array<number>;
-  constructor(username: string, numberOfDice: number) {
-    this.username = username;
-    this.dice = new Array(numberOfDice).fill(0);
-  }
-}
-
 const GamePlayerSchema = z.object({
   username: z.string(),
   dice: z.array(z.number()),
 });
+export type GamePlayer = z.infer<typeof GamePlayerSchema>;
 
 const BetSchema = z.object({
   dieValue: z.number(),
@@ -73,7 +65,14 @@ export class LiarsDiceGameState implements GameState {
     this.currentBet = { ...INITIAL_BET };
     this.numberOfDice = numberOfDice;
     this.numberOfSides = numberOfSides;
-    this.players = users.map((user) => new GamePlayer(user, numberOfDice));
+    this.players = users.map((user) => {
+      const player: GamePlayer = {
+        username: user,
+        dice: new Array(numberOfDice).fill(0),
+      };
+      rollDice(player.dice, numberOfSides);
+      return player;
+    });
     this.gameType = GAME_TYPE.LIARS_DICE;
   }
 
@@ -85,7 +84,7 @@ export class LiarsDiceGameState implements GameState {
         nextRound(this);
         this.roundTurnCount = 0;
         if (isGameOver(this)) {
-          return false;
+          return true;
         }
         break;
       case ACTIONS.BET:
@@ -97,7 +96,7 @@ export class LiarsDiceGameState implements GameState {
       default:
         throw new Error("invalid action type");
     }
-    return true;
+    return false;
   }
 }
 
@@ -196,19 +195,18 @@ function challenge(state: LiarsDiceGameStateType) {
 }
 
 function nextRound(state: LiarsDiceGameStateType) {
-  // remove dead players and reset turn
+  // remove dead player
+  let removedPlayerIndex;
   for (let i = 0; i < state.players.length; i++) {
     const player = state.players[i];
     if (player.dice.length <= 0) {
       state.players.splice(i, 1);
-      if (state.turn === i) {
-        state.turn = state.turn % state.players.length;
-      } else {
-        nextTurn(state);
-      }
+      removedPlayerIndex = i;
       break;
     }
   }
+
+  syncTurn(removedPlayerIndex, state);
 
   state.players.forEach((player) => {
     rollDice(player.dice, state.numberOfSides);
@@ -216,6 +214,26 @@ function nextRound(state: LiarsDiceGameStateType) {
 
   // reset bet
   state.currentBet = { ...INITIAL_BET };
+}
+
+function syncTurn(
+  removedPlayerIndex: number | undefined,
+  state: LiarsDiceGameStateType
+) {
+  if (removedPlayerIndex != undefined) {
+    if (state.turn >= state.players.length) {
+      // out of bounds, next turn by modulo
+      state.turn = state.turn % state.players.length;
+    } else if (removedPlayerIndex > state.turn) {
+      // if removed player is after current turn index, the player removal
+      // doesn't cause a desync in the turn index
+      nextTurn(state);
+    }
+    // if removed player is before current turn index, the array automatically
+    // shifts correctly
+  } else {
+    nextTurn(state);
+  }
 }
 
 function isGameOver(state: LiarsDiceGameStateType) {

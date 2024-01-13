@@ -2,6 +2,7 @@ import { Socket } from "socket.io-client";
 import {
   ACTIONS,
   Bet,
+  GamePlayer,
   LiarsDiceAction,
   LiarsDiceGameStateType,
   getCurrentPlayer,
@@ -29,8 +30,11 @@ export default function LiarsDice({
   const currentPlayer = getCurrentPlayer(gameState).username;
 
   useEffect(() => {
-    setCurrentBet(getNextValidBet(gameState.currentBet, gameState));
-  }, [gameState]);
+    const nextBet = getNextValidBet(gameState.currentBet, gameState);
+    setCurrentBet(nextBet);
+  }, [gameState.currentBet]);
+
+  console.log(currentBet);
 
   function renderBet() {
     if (currentBet === null) {
@@ -52,6 +56,7 @@ export default function LiarsDice({
               };
             });
           }}
+          value={currentBet.dieValue}
         >
           {getAvailableDieValueOptions(gameState).map((dieValue) => {
             return (
@@ -75,6 +80,7 @@ export default function LiarsDice({
               };
             });
           }}
+          value={currentBet.count}
         >
           {getAvailableDiceCountOptions(gameState, currentBet.dieValue).map(
             (diceCountOption) => {
@@ -107,7 +113,12 @@ export default function LiarsDice({
       <div>{username}</div>
       <div>{socket.id}</div>
 
-      <pre>{JSON.stringify(gameState, null, 2)}</pre>
+      {/* <pre>{JSON.stringify(gameState, null, 2)}</pre> */}
+      <Board
+        gameState={gameState}
+        username={username}
+        isHidingOtherHands={true}
+      />
 
       <div hidden={currentPlayer === username}>
         Waiting for {currentPlayer}...
@@ -124,6 +135,45 @@ export default function LiarsDice({
         </button>
         {renderBet()}
       </div>
+    </div>
+  );
+}
+
+type HandProps = { player: GamePlayer };
+function Hand({ player }: HandProps) {
+  return (
+    <div>
+      <div>{player.username}</div>
+      <div>
+        {player.dice.map((die) => (
+          <div>{die}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+type BoardProps = {
+  gameState: LiarsDiceGameStateType;
+  isHidingOtherHands: boolean;
+  username: string;
+};
+function Board({ gameState, isHidingOtherHands, username }: BoardProps) {
+  if (isHidingOtherHands) {
+    const player = gameState.players.find(
+      (player) => player.username === username
+    );
+    if (player == null) {
+      throw new Error(`nonexistent player: ${username}`);
+    }
+    return <Hand player={player} />;
+  }
+
+  return (
+    <div>
+      {gameState.players.map((player) => (
+        <Hand player={player} />
+      ))}
     </div>
   );
 }

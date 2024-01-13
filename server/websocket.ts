@@ -60,11 +60,14 @@ export function websocketSetup(
     });
 
     socket.on("player-action", (roomId: string, action: unknown) => {
+      console.log("received player-action");
       const gameState = gamesManager.getGameState(roomId);
       const isGameOver = gameState.gameCycle(action);
+
       if (isGameOver) {
         io.to(roomId).emit("game-over", gameState);
       } else {
+        console.log(`sending game state to ${roomId}`);
         io.to(roomId).emit("updated-game-state", gameState);
       }
     });
